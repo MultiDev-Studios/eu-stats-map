@@ -1,0 +1,8 @@
+body {
+  font-family: Arial;
+  margin: 0;
+}
+
+#map {
+  height: 90vh;
+}
