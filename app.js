@@ -1,56 +1,68 @@
-// ------------------------------
-// app.js
-// ------------------------------
-
 let stats = {}; // Global object for country stats
 
-// 1️⃣ Initialize Leaflet map centered on Europe
-const map = L.map('map', {
-  zoomControl: true
-}).setView([54, 15], 4);
+// Initialize Leaflet map
+const map = L.map('map', { zoomControl: true }).setView([54, 15], 4);
 
-// Adaptive background for light/dark mode
+// Adaptive background
 function setMapBackground() {
   const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   map.getContainer().style.background = isDark ? '#000000' : '#ffffff';
 }
-
-// Set background on load
 setMapBackground();
-
-// Update background if system theme changes
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setMapBackground);
 
-// Restrict map bounds to Europe
-const euBounds = [
-  [34, -25], // SW corner extended to include Iberia & Turkey
-  [72, 45]   // NE corner extended to include Russia & Baltic
-];
+// Restrict bounds to Europe
+const euBounds = [[34, -25],[72, 45]];
 map.setMaxBounds(euBounds);
 map.fitBounds(euBounds);
 
-// 2️⃣ Fetch Eurostat population density data
-fetch('https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/DEMO_R_D3DENS?lang=EN')
-  .then(res => res.json())
-  .then(data => {
-    fetch('europe.geojson')
-      .then(res => res.json())
-      .then(geojson => {
-        // Keep all countries in Europe, no filtering
+// Dataset selection
+const datasetSelect = document.getElementById('dataset');
+datasetSelect.addEventListener('change', () => {
+  loadEurostatData(datasetSelect.value);
+});
 
-        stats = extractLatest(data, geojson);
-        console.log('Stats loaded:', stats);
+// DOM elements
+const loadingEl = document.getElementById('loading');
+const rangeBar = document.getElementById('rangeBar');
 
-        // Add GeoJSON to map
-        L.geoJSON(geojson, { style, onEachFeature }).addTo(map);
-      });
-  })
-  .catch(err => console.error('Fetch error:', err));
+// Initial load
+loadEurostatData(datasetSelect.value);
+
+// ------------------------------
+// Load Eurostat data
+// ------------------------------
+async function loadEurostatData(dataset) {
+  try {
+    loadingEl.style.display = 'block';
+
+    const dataRes = await fetch(`https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/${dataset}?lang=EN`);
+    const data = await dataRes.json();
+
+    const geoRes = await fetch('europe.geojson');
+    const geojson = await geoRes.json();
+
+    stats = extractLatest(data, geojson);
+
+    // Remove old layers
+    map.eachLayer(l => { if (l instanceof L.GeoJSON) map.removeLayer(l); });
+
+    // Add GeoJSON
+    L.geoJSON(geojson, { style, onEachFeature }).addTo(map);
+
+    // Update range bar with gradient
+    updateRangeBar();
+
+  } catch (err) {
+    console.error('Fetch error:', err);
+  } finally {
+    loadingEl.style.display = 'none';
+  }
+}
 
 // ------------------------------
 // Helper functions
 // ------------------------------
-
 function extractLatest(data, geojson) {
   const values = data.value;
   const result = {};
@@ -73,20 +85,25 @@ function extractLatest(data, geojson) {
   return result;
 }
 
+// ------------------------------
 // Color scale
+// ------------------------------
 function getColor(value) {
-  if (value == null) return '#ccc'; // grey for non-EU or missing data
-  return value > 300 ? '#800026' :
-         value > 200 ? '#BD0026' :
-         value > 100 ? '#E31A1C' :
-         value > 50  ? '#FC4E2A' :
+  if (value == null) return '#ccc';
+  const vals = Object.values(stats).filter(v => v != null);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const ratio = (value - min) / (max - min);
+  return ratio > 0.8 ? '#800026' :
+         ratio > 0.6 ? '#BD0026' :
+         ratio > 0.4 ? '#E31A1C' :
+         ratio > 0.2 ? '#FC4E2A' :
                        '#FFEDA0';
 }
 
-// Style function: EU countries get color, others grey
 function style(feature) {
   const countryCode = feature.properties.ISO2;
-  const value = stats[countryCode]; // undefined for non-EU
+  const value = stats[countryCode];
   return {
     fillColor: getColor(value),
     weight: 1,
@@ -95,12 +112,69 @@ function style(feature) {
   };
 }
 
-// Popup for each country
+// ------------------------------
+// Popups and country click
+// ------------------------------
 function onEachFeature(feature, layer) {
   const countryCode = feature.properties.ISO2;
   const countryName = feature.properties.NAME || feature.properties.ADMIN;
   const value = stats[countryCode];
-  layer.bindPopup(
-    `<b>${countryName}</b><br>Population density: ${value != null ? value : 'N/A'}`
-  );
+  const datasetName = datasetSelect.options[datasetSelect.selectedIndex].text;
+
+  layer.bindPopup(`<b>${countryName}</b><br>${datasetName}: ${value != null ? value : 'N/A'}`);
+
+  layer.on('click', () => {
+    highlightOnBar(value);
+  });
+}
+
+// ------------------------------
+// Range bar with gradient
+// ------------------------------
+function updateRangeBar() {
+  rangeBar.innerHTML = '';
+  const vals = Object.values(stats).filter(v => v != null);
+  if (!vals.length) return;
+
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+
+  // Apply gradient background
+  rangeBar.style.background = `linear-gradient(to right, 
+      ${getColor(min)} 0%, 
+      ${getColor(min + (max-min)*0.2)} 20%, 
+      ${getColor(min + (max-min)*0.4)} 40%, 
+      ${getColor(min + (max-min)*0.6)} 60%, 
+      ${getColor(min + (max-min)*0.8)} 80%, 
+      ${getColor(max)} 100%)`;
+
+  // Min label
+  const minLabel = document.createElement('div');
+  minLabel.className = 'label';
+  minLabel.style.left = '0%';
+  minLabel.innerText = min.toFixed(0);
+  rangeBar.appendChild(minLabel);
+
+  // Max label
+  const maxLabel = document.createElement('div');
+  maxLabel.className = 'label';
+  maxLabel.style.left = '100%';
+  maxLabel.innerText = max.toFixed(0);
+  rangeBar.appendChild(maxLabel);
+}
+
+// Highlight country on bar
+function highlightOnBar(value) {
+  const oldMarker = rangeBar.querySelector('.marker');
+  if (oldMarker) oldMarker.remove();
+
+  const vals = Object.values(stats).filter(v => v != null);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const percent = ((value - min) / (max - min)) * 100;
+
+  const marker = document.createElement('div');
+  marker.className = 'marker';
+  marker.style.left = `${percent}%`;
+  rangeBar.appendChild(marker);
 }

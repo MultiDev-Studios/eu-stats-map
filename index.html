@@ -4,10 +4,66 @@
   <title>EU Stats Map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
+  <style>
+    #map { height: 70vh; width: 100%; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    h1 { text-align: center; margin-top: 10px; }
+    #controls { text-align: center; margin: 10px; }
+    
+    /* Loading overlay */
+    #loading {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255,255,255,0.9);
+      padding: 15px 25px;
+      border-radius: 8px;
+      font-weight: bold;
+      display: none;
+      z-index: 1000;
+    }
+
+    /* Min-Max bar */
+    #rangeBar {
+      height: 30px;
+      width: 60%;
+      margin: 10px auto;
+      background: #eee;
+      position: relative;
+      border-radius: 5px;
+    }
+    #rangeBar .marker {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      width: 2px;
+      background: black;
+    }
+    #rangeBar .label {
+      position: absolute;
+      top: 100%;
+      font-size: 12px;
+      transform: translateX(-50%);
+    }
+  </style>
 </head>
 <body>
 
 <h1>EU Stats Map</h1>
+
+<div id="controls">
+  <label for="dataset">Select dataset:</label>
+  <select id="dataset">
+    <option value="DEMO_R_D3DENS">Population density</option>
+    <option value="demo_pjan">Population by age</option>
+    <option value="nama_10_gdp">GDP</option>
+  </select>
+</div>
+
+<div id="loading">Loading data...</div>
+
+<div id="rangeBar"></div>
+
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
