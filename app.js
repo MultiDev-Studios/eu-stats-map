@@ -1,13 +1,23 @@
 let stats = {}; 
 let sortDirection = { name: 1, value: 1 }; // 1 = ascending, -1 = descending
+let geoJsonLayer = null; // store the map layer to simulate clicks
 
+// ------------------------------
 // Initialize Leaflet map
+// ------------------------------
 const map = L.map('map', { zoomControl: true }).setView([54, 15], 4);
 
-// Adaptive background
+// Adaptive map & page background + table colors
 function setMapBackground() {
   const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  map.getContainer().style.background = isDark ? '#000000' : '#ffffff';
+  map.getContainer().style.background = isDark ? '#111' : '#fff';
+  document.body.style.background = isDark ? '#111' : '#fff';
+  // Table style
+  const table = document.getElementById('dataTable');
+  table.style.background = isDark ? '#222' : '#fff';
+  table.style.color = isDark ? '#eee' : '#000';
+  table.querySelectorAll('th').forEach(th => th.style.background = isDark ? '#333' : '#f2f2f2');
+  table.querySelectorAll('td').forEach(td => td.style.background = isDark ? '#222' : '#fff');
 }
 setMapBackground();
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setMapBackground);
@@ -27,7 +37,7 @@ datasetSelect.addEventListener('change', () => loadEurostatData(datasetSelect.va
 loadEurostatData(datasetSelect.value);
 
 // ------------------------------
-// Mapping ISO codes
+// ISO mapping
 // ------------------------------
 const mapping = {
   40:"AT",56:"BE",100:"BG",196:"CY",203:"HR",191:"CZ",208:"DK",
@@ -52,9 +62,16 @@ async function loadEurostatData(dataset) {
     const geoRes = await fetch('europe.geojson');
     const geojson = await geoRes.json();
     stats = extractLatest(data, geojson);
+    // Log for cross-reference
+    console.group(`Eurostat dataset: ${dataset}`);
+    console.log('Raw data.value:', data.value);
+    console.log('Geo dimension keys:', data.dimension?.geo?.category?.index);
+    console.log('Mapped stats (ISO -> value):', stats);
+    console.groupEnd();
+    
+    if(geoJsonLayer) map.removeLayer(geoJsonLayer);
 
-    map.eachLayer(l => { if(l instanceof L.GeoJSON) map.removeLayer(l); });
-    L.geoJSON(geojson, { style, onEachFeature }).addTo(map);
+    geoJsonLayer = L.geoJSON(geojson, { style, onEachFeature }).addTo(map);
 
     updateRangeBar();
     populateTable();
@@ -82,18 +99,18 @@ function extractLatest(data, geojson) {
 function getColor(value) {
   if(value==null) return '#ccc';
   const vals = Object.values(stats).filter(v=>v!=null);
-  const min=Math.min(...vals), max=Math.max(...vals);
-  const ratio=(value-min)/(max-min);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const ratio = (value - min) / (max - min);
   return ratio>0.8?'#800026':ratio>0.6?'#BD0026':ratio>0.4?'#E31A1C':ratio>0.2?'#FC4E2A':'#FFEDA0';
 }
 
 function style(feature){
-  const iso=feature.properties.ISO2;
+  const iso = feature.properties.ISO2;
   return { fillColor:getColor(stats[iso]), weight:1, color:'white', fillOpacity:0.7 };
 }
 
 // ------------------------------
-// Map popups
+// Map popups & click
 // ------------------------------
 function onEachFeature(feature, layer){
   const iso = feature.properties.ISO2;
@@ -101,7 +118,10 @@ function onEachFeature(feature, layer){
   const value = stats[iso];
   const datasetName = datasetSelect.options[datasetSelect.selectedIndex].text;
   layer.bindPopup(`<b>${name}</b><br>${datasetName}: ${value != null ? value : 'N/A'}`);
-  layer.on('click', () => { highlightOnBar(value); highlightTableRow(iso); });
+  layer.on('click', () => { 
+    highlightOnBar(value); 
+    highlightTableRow(iso); 
+  });
 }
 
 // ------------------------------
@@ -109,9 +129,9 @@ function onEachFeature(feature, layer){
 // ------------------------------
 function updateRangeBar(){
   rangeBar.innerHTML='';
-  const vals=Object.values(stats).filter(v=>v!=null);
+  const vals = Object.values(stats).filter(v=>v!=null);
   if(!vals.length) return;
-  const min=Math.min(...vals), max=Math.max(...vals);
+  const min = Math.min(...vals), max = Math.max(...vals);
 
   rangeBar.style.background=`linear-gradient(to right, 
     ${getColor(min)} 0%, 
@@ -121,19 +141,17 @@ function updateRangeBar(){
     ${getColor(min + (max-min)*0.8)} 80%, 
     ${getColor(max)} 100%)`;
 
-  const minLabel=document.createElement('div');
-  minLabel.className='label'; minLabel.style.left='0%'; minLabel.innerText=min.toFixed(0);
-  const maxLabel=document.createElement('div');
-  maxLabel.className='label'; maxLabel.style.left='100%'; maxLabel.innerText=max.toFixed(0);
+  const minLabel = document.createElement('div'); minLabel.className='label'; minLabel.style.left='0%'; minLabel.innerText=min.toFixed(0);
+  const maxLabel = document.createElement('div'); maxLabel.className='label'; maxLabel.style.left='100%'; maxLabel.innerText=max.toFixed(0);
   rangeBar.appendChild(minLabel); rangeBar.appendChild(maxLabel);
 }
 
 function highlightOnBar(value){
   const old=rangeBar.querySelector('.marker'); if(old) old.remove();
-  const vals=Object.values(stats).filter(v=>v!=null);
-  const min=Math.min(...vals), max=Math.max(...vals);
-  const percent=((value-min)/(max-min))*100;
-  const marker=document.createElement('div'); marker.className='marker'; marker.style.left=`${percent}%`;
+  const vals = Object.values(stats).filter(v=>v!=null);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const percent = ((value-min)/(max-min))*100;
+  const marker = document.createElement('div'); marker.className='marker'; marker.style.left=`${percent}%`;
   rangeBar.appendChild(marker);
 }
 
@@ -155,13 +173,28 @@ function populateTable(){
 
 function highlightTableRow(iso){
   dataTable.querySelectorAll('tr').forEach(r=>r.classList.remove('highlight'));
-  const tr=dataTable.querySelector(`tr[data-iso='${iso}']`);
+  const tr = dataTable.querySelector(`tr[data-iso='${iso}']`);
   if(tr) tr.classList.add('highlight');
 }
 
+// ------------------------------
+// Table click triggers map popup
+// ------------------------------
 function attachTableClick(){
   dataTable.querySelectorAll('tr').forEach(tr=>{
-    tr.onclick=()=>{ const iso=tr.dataset.iso; highlightOnBar(stats[iso]); highlightTableRow(iso); };
+    tr.onclick=()=>{ 
+      const iso = tr.dataset.iso; 
+      highlightOnBar(stats[iso]); 
+      highlightTableRow(iso); 
+      
+      // Simulate click on map feature
+      geoJsonLayer.eachLayer(layer=>{
+        if(layer.feature && layer.feature.properties.ISO2 === iso){
+          layer.openPopup();
+          map.flyTo(layer.getBounds().getCenter(), 5); // zoom a bit
+        }
+      });
+    };
   });
 }
 
@@ -175,17 +208,24 @@ function iso2Feature(iso){
 }
 
 // ------------------------------
-// Table sorting with toggle
+// Table sorting with arrows
 // ------------------------------
 document.querySelectorAll('#dataTable th').forEach(th=>{
   th.onclick=()=>{
     const type=th.dataset.sort;
     const rows=Array.from(dataTable.querySelectorAll('tr'));
+
+    // Remove arrows from all headers
+    document.querySelectorAll('#dataTable th').forEach(h=>h.classList.remove('asc','desc'));
+
     rows.sort((a,b)=>{
       if(type==='name') return sortDirection.name*(a.cells[0].innerText.localeCompare(b.cells[0].innerText));
       return sortDirection.value*(parseFloat(a.cells[1].innerText)-parseFloat(b.cells[1].innerText));
     });
     rows.forEach(r=>dataTable.appendChild(r));
-    sortDirection[type]*=-1; // Toggle
+
+    // Update arrow on this column
+    th.classList.add(sortDirection[type]===1?'asc':'desc');
+    sortDirection[type]*=-1; // toggle
   };
 });

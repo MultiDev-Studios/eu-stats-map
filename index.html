@@ -4,12 +4,62 @@
   <title>EU Stats Map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 0; text-align: center; }
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 0; 
+      padding: 0; 
+      text-align: center; 
+      transition: background 0.3s; 
+    }
     h1 { margin-top: 10px; }
+
     #controls { margin: 10px; }
-    
+
+    /* Container for map + table side by side */
+    #mainContainer { 
+      display: flex; 
+      justify-content: center; 
+      align-items: flex-start; 
+      width: 95%; 
+      margin: 0 auto; 
+      gap: 20px; 
+    }
+
     /* Map container */
-    #map { height: 60vh; width: 80%; margin: 0 auto; border: 1px solid #ccc; border-radius: 8px; }
+    #map { 
+      height: 70vh; 
+      width: 60%; 
+      border: 1px solid #ccc; 
+      border-radius: 8px; 
+    }
+
+    /* Table container */
+    #tableContainer {
+      width: 35%; 
+      max-height: 70vh; 
+      overflow-y: auto; 
+    }
+
+    table { 
+      width: 100%; 
+      border-collapse: collapse; 
+    }
+    th, td { 
+      border: 1px solid #ccc; 
+      padding: 6px 10px; 
+      text-align: right; 
+      transition: background 0.3s; 
+    }
+    th { 
+      cursor: pointer; 
+      background: #f2f2f2; 
+      position: relative; 
+    }
+    th.asc::after { content: " ↑"; }
+    th.desc::after { content: " ↓"; }
+
+    th:first-child, td:first-child { text-align: left; }
+    tr.highlight { background: #ffeaa7; }
 
     /* Loading overlay */
     #loading {
@@ -46,13 +96,6 @@
       font-size: 12px;
       transform: translateX(-50%);
     }
-
-    /* Table */
-    table { width: 80%; margin: 20px auto; border-collapse: collapse; }
-    th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: right; }
-    th { cursor: pointer; background: #f2f2f2; }
-    th:first-child, td:first-child { text-align: left; }
-    tr.highlight { background: #ffeaa7; }
   </style>
 </head>
 <body>
@@ -70,18 +113,21 @@
 
 <div id="loading">Loading data...</div>
 <div id="rangeBar"></div>
-<div id="map"></div>
 
-<h2>Country Data Table</h2>
-<table id="dataTable">
-  <thead>
-    <tr>
-      <th data-sort="name">Country</th>
-      <th data-sort="value">Value</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+<div id="mainContainer">
+  <div id="map"></div>
+  <div id="tableContainer">
+    <table id="dataTable">
+      <thead>
+        <tr>
+          <th data-sort="name">Country</th>
+          <th data-sort="value">Value</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="app.js"></script>
