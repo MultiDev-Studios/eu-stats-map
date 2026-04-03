@@ -2,87 +2,111 @@
 <html>
 <head>
   <title>EU Stats Map</title>
+
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
   <style>
+    /* ---------------- GLOBAL ---------------- */
     body { 
       font-family: Arial, sans-serif; 
       margin: 0; 
-      padding: 0; 
-      text-align: center; 
+      background: #f4f6f8;
       transition: background 0.3s; 
     }
-    h1 { margin-top: 10px; }
 
-    #controls { margin: 10px; }
+    h1 { 
+      text-align: center;
+      margin: 10px 0;
+    }
 
-    /* Container for map + table side by side */
+    #controls { 
+      text-align: center;
+      margin: 10px; 
+    }
+
+    select {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    /* ---------------- LAYOUT ---------------- */
     #mainContainer { 
       display: flex; 
-      justify-content: center; 
-      align-items: flex-start; 
       width: 95%; 
       margin: 0 auto; 
       gap: 20px; 
     }
 
-    /* Map container */
+    /* ---------------- MAP ---------------- */
     #map { 
       height: 70vh; 
-      width: 60%; 
-      border: 1px solid #ccc; 
-      border-radius: 8px; 
+      width: 65%; 
+      border-radius: 10px; 
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     }
 
-    /* Table container */
+    /* ---------------- TABLE ---------------- */
     #tableContainer {
       width: 35%; 
       max-height: 70vh; 
       overflow-y: auto; 
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      background: white;
     }
 
     table { 
       width: 100%; 
       border-collapse: collapse; 
     }
+
     th, td { 
-      border: 1px solid #ccc; 
-      padding: 6px 10px; 
+      padding: 8px 10px; 
       text-align: right; 
-      transition: background 0.3s; 
     }
+
     th { 
       cursor: pointer; 
       background: #f2f2f2; 
-      position: relative; 
+      position: sticky;
+      top: 0;
+      z-index: 2;
     }
-    th.asc::after { content: " ↑"; }
-    th.desc::after { content: " ↓"; }
 
-    th:first-child, td:first-child { text-align: left; }
+    th.asc::after { content: " ▲"; }
+    th.desc::after { content: " ▼"; }
+
+    th:first-child, td:first-child { text-align: center; }
+    td:nth-child(2) { text-align: left; }
+
+    tr:hover { background: rgba(0,0,0,0.05); }
     tr.highlight { background: #ffeaa7; }
 
-    /* Loading overlay */
+    /* ---------------- LOADING ---------------- */
     #loading {
-      position: absolute;
+      position: fixed;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      background: rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.95);
       padding: 15px 25px;
-      border-radius: 8px;
+      border-radius: 10px;
       font-weight: bold;
       display: none;
       z-index: 1000;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     }
 
-    /* Range bar */
+    /* ---------------- RANGE BAR ---------------- */
     #rangeBar {
-      height: 30px;
+      height: 18px;
       width: 60%;
-      margin: 10px auto;
-      background: #eee;
+      margin: 15px auto;
+      border-radius: 10px;
       position: relative;
-      border-radius: 5px;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
     }
+
     #rangeBar .marker {
       position: absolute;
       top: 0;
@@ -90,14 +114,17 @@
       width: 2px;
       background: black;
     }
+
     #rangeBar .label {
       position: absolute;
-      top: 100%;
-      font-size: 12px;
+      top: 22px;
+      font-size: 11px;
       transform: translateX(-50%);
     }
+
   </style>
 </head>
+
 <body>
 
 <h1>EU Stats Map</h1>
@@ -112,14 +139,17 @@
 </div>
 
 <div id="loading">Loading data...</div>
+
 <div id="rangeBar"></div>
 
 <div id="mainContainer">
   <div id="map"></div>
+
   <div id="tableContainer">
     <table id="dataTable">
       <thead>
         <tr>
+          <th data-sort="rank">#</th>
           <th data-sort="name">Country</th>
           <th data-sort="value">Value</th>
         </tr>
@@ -131,5 +161,6 @@
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="app.js"></script>
+
 </body>
 </html>
