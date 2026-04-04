@@ -158,29 +158,39 @@ function applyDataToSVG() {
   const min = Math.min(...vals);
   const max = Math.max(...vals);
 
-  document.querySelectorAll('#euMap [id]').forEach(el => {
-    const iso = el.id.toUpperCase(); // ✅ convert SVG id to lowercase
-    const value = stats[iso]; // now matches keys
+ document.querySelectorAll('#euMap path').forEach(el => {
+let iso = el.id.toUpperCase();
 
-    // remove old classes
-    el.classList.remove(
-      'fill00','fill10','fill20','fill30','fill40',
-      'fill50','fill60','fill70','fill80','fill90','fillNA'
-    );
+// handle cases like "ru-main"
+if (iso.length !== 2) {
+  const parent = el.closest('g');
+  if (parent && parent.id) {
+    iso = parent.id.toUpperCase();
+  }
+}
 
-    // set fill class
-    if (value == null) {
-      el.classList.add('fillNA');
-    } else {
-const sorted = vals.slice().sort((a,b) => a - b);
-const index = sorted.indexOf(value);
-const ratio = index / (sorted.length - 1);
+// still not valid → skip (legend etc.)
+if (iso.length !== 2) return;
 
-const bucket = Math.floor(ratio * 10);
-const safeBucket = Math.min(bucket, 9);
+  // now safe to modify
+  el.classList.remove(
+    'fill00','fill10','fill20','fill30','fill40',
+    'fill50','fill60','fill70','fill80','fill90','fillNA'
+  );
 
-el.classList.add(`fill${safeBucket}0`);
-    }
+  const value = stats[iso];
+
+  if (value == null) {
+    el.classList.add('fillNA');
+  } else {
+    const sorted = vals.slice().sort((a,b) => a - b);
+    const index = sorted.indexOf(value);
+    const ratio = index / (sorted.length - 1);
+    const bucket = Math.floor(ratio * 10);
+    const safeBucket = Math.min(bucket, 9);
+
+    el.classList.add(`fill${safeBucket}0`);
+  }
 
     // tooltip
     el.onmouseenter = e => {
