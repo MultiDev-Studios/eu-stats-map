@@ -2,15 +2,12 @@ let stats = {};
 let sortDirection = { rank: 1, name: 1, value: 1 }; 
 let geoJsonLayer = null;
 
-const map = L.map('map', { zoomControl: true }).setView([54, 15], 4);
-
 // ------------------------------
 // Theme handling
 // ------------------------------
 function setMapBackground() {
   const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-  map.getContainer().style.background = isDark ? '#111' : '#f4f6f8';
   document.body.style.background = isDark ? '#111' : '#f4f6f8';
 
   const table = document.getElementById('dataTable');
@@ -23,10 +20,9 @@ function setMapBackground() {
 setMapBackground();
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setMapBackground);
 
-// ------------------------------
-map.setMaxBounds([[34, -25],[72, 45]]);
-map.fitBounds([[34, -25],[72, 45]]);
 
+
+// ------------------------------
 const datasetSelect = document.getElementById('dataset');
 const loadingEl = document.getElementById('loading');
 const rangeBar = document.getElementById('rangeBar');
@@ -45,13 +41,9 @@ async function loadEurostatData(dataset) {
     const dataRes = await fetch(`https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/${dataset}?lang=EN&geoLevel=country`);
     const data = await dataRes.json();
 
-    const geoRes = await fetch('europe.geojson');
-    const geojson = await geoRes.json();
+    stats = extractLatest(data); // no geojson anymore
 
-    stats = extractLatest(data, geojson);
-
-    if(geoJsonLayer) map.removeLayer(geoJsonLayer);
-    geoJsonLayer = L.geoJSON(geojson, { style, onEachFeature }).addTo(map);
+    applyDataToSVG(); // 👈 NEW
 
     updateRangeBar();
     populateTable();
@@ -66,7 +58,7 @@ async function loadEurostatData(dataset) {
 // ------------------------------
 // Extract data
 // ------------------------------
-function extractLatest(data, geojson) {
+function extractLatest(data) {
   const result = {};
   if (!data.dimension || !data.value) return result;
 
@@ -88,27 +80,22 @@ function extractLatest(data, geojson) {
   }
 
   const geoKeys = Object.keys(data.dimension.geo.category.index);
+
   geoKeys.forEach(geoCode => {
     const indices = [];
-console.log(data.dimension.unit.category.index);
+
     dims.forEach((dim, i) => {
       if (dim === "geo") indices[i] = data.dimension.geo.category.index[geoCode];
       else if (dim === "time") indices[i] = latestTimeKey !== null ? data.dimension.time.category.index[latestTimeKey] : 0;
-      else if (dim === "unit") {
-        const unitIndex = data.dimension.unit.category.index["MIO"];
-        indices[i] = unitIndex !== undefined ? unitIndex : 0;
-        }
+      else indices[i] = 0;
     });
 
     let flatIndex = 0;
     indices.forEach((idx, i) => flatIndex += idx * multipliers[i]);
 
     const val = data.value[flatIndex];
-    if (val != null && val !== ":") {
-      const iso = geoCode.length === 2 ? geoCode : null;
-      if (iso && geojson.features.some(f => f.properties.ISO2 === iso)) {
-        result[iso] = val;
-      }
+    if (val != null && val !== ":" && geoCode.length === 2) {
+      result[geoCode] = val;
     }
   });
 
@@ -152,6 +139,98 @@ function onEachFeature(feature, layer){
     highlightOnBar(value); 
     highlightTableRow(iso); 
   });
+}
+
+// ------------------------------
+const tooltip = document.createElement('div');
+tooltip.style.position = 'absolute';
+tooltip.style.pointerEvents = 'none';
+tooltip.style.padding = '4px 8px';
+tooltip.style.background = 'rgba(0,0,0,0.7)';
+tooltip.style.color = '#fff';
+tooltip.style.borderRadius = '4px';
+tooltip.style.fontSize = '12px';
+tooltip.style.display = 'none';
+document.body.appendChild(tooltip);
+function applyDataToSVG() {
+  const vals = Object.values(stats).filter(v => v != null);
+  if (!vals.length) return;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+
+  document.querySelectorAll('#euMap [id]').forEach(el => {
+    const iso = el.id.toUpperCase(); // ✅ convert SVG id to lowercase
+    const value = stats[iso]; // now matches keys
+
+    // remove old classes
+    el.classList.remove(
+      'fill00','fill10','fill20','fill30','fill40',
+      'fill50','fill60','fill70','fill80','fill90','fillNA'
+    );
+
+    // set fill class
+    if (value == null) {
+      el.classList.add('fillNA');
+    } else {
+const sorted = vals.slice().sort((a,b) => a - b);
+const index = sorted.indexOf(value);
+const ratio = index / (sorted.length - 1);
+
+const bucket = Math.floor(ratio * 10);
+const safeBucket = Math.min(bucket, 9);
+
+el.classList.add(`fill${safeBucket}0`);
+    }
+
+    // tooltip
+    el.onmouseenter = e => {
+      el.style.stroke = 'black';
+      el.style.strokeWidth = '2';
+      highlightTableRow(iso);
+
+      // try to get the country name from SVG 'data-name' or fallback to ISO
+      const name = el.dataset.name || iso.toUpperCase();
+      tooltip.innerHTML = value != null
+        ? `<b>${name}</b>: ${value}`
+        : `<b>${name}</b>: N/A`;
+      tooltip.style.display = 'block';
+    };
+    el.onmousemove = e => {
+      tooltip.style.left = e.pageX + 10 + 'px';
+      tooltip.style.top = e.pageY + 10 + 'px';
+    };
+    el.onmouseleave = () => {
+      el.style.stroke = '';
+      tooltip.style.display = 'none';
+    };
+
+    el.onclick = () => {
+      if (value != null) highlightOnBar(value);
+      highlightTableRow(iso);
+      zoomToCountry(el);
+    };
+  });
+}
+
+function zoomToCountry(el) {
+  const bbox = el.getBBox();
+  const svg = document.getElementById('euMap');
+
+  const svgWidth = svg.clientWidth;
+  const svgHeight = svg.clientHeight;
+
+  const scaleX = svgWidth / bbox.width;
+  const scaleY = svgHeight / bbox.height;
+  const scale = Math.min(scaleX, scaleY) * 0.6; // leave padding
+
+  const cx = bbox.x + bbox.width / 2;
+  const cy = bbox.y + bbox.height / 2;
+
+  const tx = svgWidth / 2 - cx * scale;
+  const ty = svgHeight / 2 - cy * scale;
+
+  svg.style.transition = 'transform 0.5s';
+  svg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
 }
 
 // ------------------------------
