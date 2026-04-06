@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Align local branch with remote main
+        run: |
+          git fetch origin main
+          git checkout main || git checkout -b main
+          git rebase origin/main || git reset --hard origin/main
+
+
+      - name: Debug commit hashes
+        run: |
+          echo "Local HEAD: $(git rev-parse HEAD)"
+          echo "Remote main: $(git rev-parse origin/main)"
+
+      - name: Check git remote URLs
+        run: git remote -v
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release --debug
