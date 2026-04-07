@@ -1,0 +1,27 @@
+name: Simple Lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install tools (temporary)
+        run: |
+          npm install -g eslint stylelint stylelint-config-standard htmlhint prettier
+
+      - name: Run checks
+        run: |
+          eslint app.js
+          stylelint style.css
+          htmlhint index.html
+          prettier --check .
