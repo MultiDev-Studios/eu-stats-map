@@ -350,10 +350,13 @@ function updateRangeBar() {
 }
 
 // ------------------------------
-// MARKER ON RANGE BAR (SVG-COLOR MATCHED)
-function highlightOnBar(value) {
-  const old = rangeBar.querySelector('.marker');
-  if (old) old.remove();
+// RANGE BAR IMPROVEMENTS
+function highlightOnBar(value, iso) {
+  // remove old marker + flag
+  const oldMarker = rangeBar.querySelector('.marker');
+  if (oldMarker) oldMarker.remove();
+  const oldFlag = rangeBar.querySelector('.marker-flag');
+  if (oldFlag) oldFlag.remove();
 
   const vals = Object.values(stats).filter(v => v != null);
   if (!vals.length || value == null) return;
@@ -361,14 +364,12 @@ function highlightOnBar(value) {
   const min = Math.min(...vals);
   const max = Math.max(...vals);
 
-  // ---------------- LOGARITHMIC BUCKET MATCHING SVG
+  // LOGARITHMIC BUCKET MATCHING SVG
   const logMin = Math.log(min + 1);
   const logMax = Math.log(max + 1);
   const logVal = Math.log(value + 1);
 
   const ratio = (logVal - logMin) / (logMax - logMin || 1);
-  let bucket = Math.floor(ratio * 10);
-  bucket = Math.min(Math.max(bucket, 0), 9);
 
   // COLORS MATCH SVG BUCKETS
   const colors = [
@@ -384,15 +385,38 @@ function highlightOnBar(value) {
     'rgb(40,10,110)'
   ];
 
+  let bucket = Math.floor(ratio * 10);
+  bucket = Math.min(Math.max(bucket, 0), 9);
+
+  // MARKER LINE
   const marker = document.createElement('div');
   marker.className = 'marker';
   marker.style.position = 'absolute';
-  marker.style.top = '0';
-  marker.style.width = '2px';
-  marker.style.height = '100%';
-  marker.style.background = colors[bucket]; // <-- match SVG fill
-  marker.style.left = `${ratio * 100}%`; // still linear placement
+  marker.style.bottom = '0';
+  marker.style.width = '4px';
+  marker.style.height = '120%'; // taller for visibility
+  marker.style.background = colors[bucket];
+  marker.style.left = `${ratio * 100}%`;
+  marker.style.transform = 'translateX(-50%)';
+  marker.style.border = '1px solid #333';
+  marker.style.borderRadius = '2px';
   rangeBar.appendChild(marker);
+
+  // FLAG ABOVE MARKER
+  if (iso) {
+    const flag = document.createElement('img');
+    flag.src = `https://flagcdn.com/20x15/${iso.toLowerCase()}.png`;
+    flag.className = 'marker-flag';
+    flag.style.position = 'absolute';
+    flag.style.bottom = '125%';
+    flag.style.left = `${ratio * 100}%`;
+    flag.style.transform = 'translateX(-50%)';
+    flag.style.width = '20px';
+    flag.style.height = '15px';
+    flag.style.border = '1px solid #333';
+    flag.style.borderRadius = '2px';
+    rangeBar.appendChild(flag);
+  }
 }
 
 // ------------------------------
@@ -421,4 +445,26 @@ function populateTable() {
   });
 
   attachTableClick();
+}
+
+// ------------------------------
+// TABLE CLICK + HIGHLIGHT
+function attachTableClick() {
+  document.querySelectorAll('#dataTable tbody tr').forEach(tr => {
+    tr.onclick = () => {
+      const iso = tr.dataset.iso;
+      const value = stats[iso];
+      highlightTableRow(iso);
+      highlightOnBar(value, iso);
+      // zoom to country
+      const el = document.querySelector(`#map svg [id='${iso}'], #map svg g[id='${iso}']`);
+      if (el) zoomToCountry(el);
+    };
+  });
+}
+
+function highlightTableRow(iso) {
+  document.querySelectorAll('#dataTable tbody tr').forEach(tr => {
+    tr.classList.toggle('highlight', tr.dataset.iso === iso);
+  });
 }
