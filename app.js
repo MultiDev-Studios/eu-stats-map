@@ -1,58 +1,103 @@
 let stats = {}; 
 let sortDirection = { rank: 1, name: 1, value: 1 }; 
 let geoJsonLayer = null;
-
-const map = L.map('map', { zoomControl: true }).setView([54, 15], 4);
+let currentUnit = '';
 
 // ------------------------------
-// Theme handling
+const dataCache = {};
+
 // ------------------------------
+// COLORS
+const colors = [
+  'rgb(253,247,254)','rgb(244,219,250)','rgb(226,185,245)',
+  'rgb(204,153,240)','rgb(180,120,235)','rgb(150,90,220)',
+  'rgb(120,60,200)','rgb(90,40,170)','rgb(60,20,140)',
+  'rgb(40,10,110)'
+];
+
+// ------------------------------
+// TOOLTIP
+const tooltip = document.createElement('div');
+Object.assign(tooltip.style, {
+  position:'absolute', pointerEvents:'none', padding:'4px 8px',
+  background:'rgba(0,0,0,0.7)', color:'#fff',
+  borderRadius:'4px', fontSize:'12px', display:'none'
+});
+document.body.appendChild(tooltip);
+
+// ------------------------------
+// THEME
 function setMapBackground() {
-  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-  map.getContainer().style.background = isDark ? '#111' : '#f4f6f8';
-  document.body.style.background = isDark ? '#111' : '#f4f6f8';
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.body.style.background = dark ? '#111' : '#f4f6f8';
 
   const table = document.getElementById('dataTable');
-  table.style.background = isDark ? '#1e1e1e' : '#fff';
-  table.style.color = isDark ? '#eee' : '#000';
+  if (!table) return;
 
-  table.querySelectorAll('th').forEach(th => th.style.background = isDark ? '#2c2c2c' : '#f0f0f0');
-  table.querySelectorAll('td').forEach(td => td.style.background = isDark ? '#1e1e1e' : '#fff');
+  table.style.background = dark ? '#1e1e1e' : '#fff';
+  table.style.color = dark ? '#eee' : '#000';
+
+  table.querySelectorAll('th').forEach(th => th.style.background = dark ? '#2c2c2c' : '#f0f0f0');
+  table.querySelectorAll('td').forEach(td => td.style.background = dark ? '#1e1e1e' : '#fff');
 }
 setMapBackground();
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setMapBackground);
 
 // ------------------------------
-map.setMaxBounds([[34, -25],[72, 45]]);
-map.fitBounds([[34, -25],[72, 45]]);
-
 const datasetSelect = document.getElementById('dataset');
 const loadingEl = document.getElementById('loading');
 const rangeBar = document.getElementById('rangeBar');
-const dataTable = document.getElementById('dataTable').querySelector('tbody');
+const dataTable = document.getElementById('dataTable')?.querySelector('tbody');
+const mapContainer = document.getElementById('map');
 
-datasetSelect.addEventListener('change', () => loadEurostatData(datasetSelect.value));
+mapContainer.style.position = 'relative';
+
+const svg = mapContainer.querySelector('svg');
+let originalViewBox = svg.getAttribute('viewBox') || "3200 1115 6284 6991";
+
+// ------------------------------
+// RESET BUTTON
+const resetBtn = document.createElement('button');
+resetBtn.innerText = 'Reset Zoom';
+Object.assign(resetBtn.style, {
+  position:'absolute', top:'10px', right:'10px',
+  padding:'8px 16px', border:'none',
+  background:'#007bff', color:'#fff',
+  borderRadius:'4px', cursor:'pointer',
+  zIndex:10000
+});
+mapContainer.appendChild(resetBtn);
+
+resetBtn.onclick = () => {
+  animateViewBox(svg, originalViewBox, 500);
+};
+
+// ------------------------------
+// INIT
+datasetSelect?.addEventListener('change', () => loadEurostatData(datasetSelect.value));
+
+// initial load
 loadEurostatData(datasetSelect.value);
+applyDataToSVG(); // color the map initially
 
 // ------------------------------
-// Load data
-// ------------------------------
+// LOAD DATA
 async function loadEurostatData(dataset) {
   try {
     loadingEl.style.display = 'block';
 
-    const dataRes = await fetch(`https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/${dataset}?lang=EN&geoLevel=country`);
-    const data = await dataRes.json();
+    const data = dataCache[dataset] ??
+      await (await fetch(`https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/${dataset}?lang=EN&geoLevel=country`)).json();
 
-    const geoRes = await fetch('europe.geojson');
-    const geojson = await geoRes.json();
+    dataCache[dataset] = data;
 
-    stats = extractLatest(data, geojson);
+    currentUnit = data.dimension?.unit
+      ? Object.values(data.dimension.unit.category.label)[0]
+      : '';
 
-    if(geoJsonLayer) map.removeLayer(geoJsonLayer);
-    geoJsonLayer = L.geoJSON(geojson, { style, onEachFeature }).addTo(map);
+    stats = extractLatest(data);
 
+    applyDataToSVG();
     updateRangeBar();
     populateTable();
 
@@ -64,219 +109,221 @@ async function loadEurostatData(dataset) {
 }
 
 // ------------------------------
-// Extract data
-// ------------------------------
-function extractLatest(data, geojson) {
-  const result = {};
-  if (!data.dimension || !data.value) return result;
+function extractLatest(data) {
+  if (!data.dimension || !data.value) return {};
 
   const dims = Object.keys(data.dimension);
-  const dimSizes = dims.map(d => Object.keys(data.dimension[d].category.index).length);
+  const sizes = dims.map(d => Object.keys(data.dimension[d].category.index).length);
 
-  const multipliers = [];
-  let prod = 1;
-  for (let i = dims.length - 1; i >= 0; i--) {
-    multipliers[i] = prod;
-    prod *= dimSizes[i];
-  }
+  const multipliers = dims.map((_,i)=>sizes.slice(i+1).reduce((a,b)=>a*b,1));
+  const latestTime = data.dimension.time ? Object.keys(data.dimension.time.category.index).sort().pop() : null;
+  const filters = { unit:"CP_MEUR", na_item:"B1GQ" };
 
-  let latestTimeKey = null;
-  if (data.dimension.time) {
-    const timeKeys = Object.keys(data.dimension.time.category.index)
-      .map(k => parseInt(k)).filter(n => !isNaN(n));
-    latestTimeKey = Math.max(...timeKeys);
-  }
+  return Object.keys(data.dimension.geo.category.index).reduce((res,geo)=>{
+    const indices = dims.map((dim,i)=>
+      dim==="geo" ? data.dimension.geo.category.index[geo] :
+      dim==="time" ? (latestTime ? data.dimension.time.category.index[latestTime] : 0) :
+      filters[dim] ? data.dimension[dim].category.index[filters[dim]] ?? 0 : 0
+    );
 
-  const geoKeys = Object.keys(data.dimension.geo.category.index);
-  geoKeys.forEach(geoCode => {
-    const indices = [];
-console.log(data.dimension.unit.category.index);
-    dims.forEach((dim, i) => {
-      if (dim === "geo") indices[i] = data.dimension.geo.category.index[geoCode];
-      else if (dim === "time") indices[i] = latestTimeKey !== null ? data.dimension.time.category.index[latestTimeKey] : 0;
-      else if (dim === "unit") {
-        const unitIndex = data.dimension.unit.category.index["MIO"];
-        indices[i] = unitIndex !== undefined ? unitIndex : 0;
-        }
-    });
+    const flat = indices.reduce((a,v,i)=>a+v*multipliers[i],0);
+    const val = data.value[flat];
 
-    let flatIndex = 0;
-    indices.forEach((idx, i) => flatIndex += idx * multipliers[i]);
-
-    const val = data.value[flatIndex];
-    if (val != null && val !== ":") {
-      const iso = geoCode.length === 2 ? geoCode : null;
-      if (iso && geojson.features.some(f => f.properties.ISO2 === iso)) {
-        result[iso] = val;
-      }
-    }
-  });
-
-  return result;
+    if (val != null && val !== ":" && geo.length === 2) res[geo] = val;
+    return res;
+  },{});
 }
 
 // ------------------------------
-// Smooth color scale
-// ------------------------------
-function getColor(value) {
-  if (value == null) return '#ccc';
-
+function applyDataToSVG() {
   const vals = Object.values(stats).filter(v => v != null);
-  const min = Math.min(...vals), max = Math.max(...vals);
-  const ratio = (value - min) / (max - min);
+  if (!vals.length) return;
 
-  const hue = 60 - ratio * 60; // yellow → red
-  return `hsl(${hue}, 100%, 50%)`;
-}
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const logMin = Math.log(min + 1);
+  const logMax = Math.log(max + 1);
 
-function style(feature){ 
-  return { 
-    fillColor:getColor(stats[feature.properties.ISO2]), 
-    weight:1, 
-    color:'white', 
-    fillOpacity:0.8 
-  }; 
-}
+  svg.querySelectorAll('path').forEach(el => {
+    let iso = (el.id || el.closest('g')?.id)?.toUpperCase();
+    if (!iso || iso.length !== 2) return;
 
-// ------------------------------
-function onEachFeature(feature, layer){
-  const iso = feature.properties.ISO2;
-  const name = feature.properties.NAME || feature.properties.ADMIN;
-  const value = stats[iso];
+    el.classList.remove(
+      'fill00','fill10','fill20','fill30','fill40',
+      'fill50','fill60','fill70','fill80','fill90','fillNA'
+    );
 
-  const datasetName = datasetSelect.options[datasetSelect.selectedIndex].text;
+    const value = stats[iso];
 
-  layer.bindPopup(`<b>${name}</b><br>${datasetName}: ${value ?? 'N/A'}`);
+    if (value == null || value === ":") {
+      el.classList.add('fillNA');
+    } else {
+      const ratio = (Math.log(value + 1) - logMin) / (logMax - logMin || 1);
+      const bucket = Math.min(Math.max(Math.floor(ratio * 10), 0), 9);
+      el.classList.add(`fill${bucket}0`);
+    }
 
-  layer.on('click', () => { 
-    highlightOnBar(value); 
-    highlightTableRow(iso); 
-  });
-}
+    // tooltip
+    el.onmouseenter = () => {
+      el.style.stroke = 'black';
+      el.style.strokeWidth = '2';
+      tooltip.innerHTML = `<b>${el.dataset.name || iso}</b>: ${value ?? 'N/A'} ${currentUnit}`;
+      tooltip.style.display = 'block';
+    };
 
-// ------------------------------
-// Range bar (smooth gradient)
-// ------------------------------
-function updateRangeBar(){
-  rangeBar.innerHTML='';
+    el.onmousemove = e => {
+      tooltip.style.left = e.pageX + 10 + 'px';
+      tooltip.style.top = e.pageY + 10 + 'px';
+    };
 
-  const vals = Object.values(stats).filter(v=>v!=null);
-  if(!vals.length) return;
+    el.onmouseleave = () => {
+      el.style.stroke = '';
+      tooltip.style.display = 'none';
+    };
 
-  const min = Math.min(...vals), max = Math.max(...vals);
-
-  rangeBar.style.background = `linear-gradient(to right, 
-    ${getColor(min)} 0%, 
-    ${getColor(min + (max-min)*0.25)} 25%, 
-    ${getColor(min + (max-min)*0.5)} 50%, 
-    ${getColor(min + (max-min)*0.75)} 75%, 
-    ${getColor(max)} 100%)`;
-
-  const minLabel = document.createElement('div');
-  minLabel.className='label';
-  minLabel.style.left='0%';
-  minLabel.innerText=min.toFixed(0);
-
-  const maxLabel = document.createElement('div');
-  maxLabel.className='label';
-  maxLabel.style.left='100%';
-  maxLabel.innerText=max.toFixed(0);
-
-  rangeBar.appendChild(minLabel);
-  rangeBar.appendChild(maxLabel);
-}
-
-function highlightOnBar(value){
-  const old=rangeBar.querySelector('.marker');
-  if(old) old.remove();
-
-  const vals = Object.values(stats).filter(v=>v!=null);
-  const min = Math.min(...vals), max = Math.max(...vals);
-
-  const percent = ((value-min)/(max-min))*100;
-
-  const marker = document.createElement('div');
-  marker.className='marker';
-  marker.style.left=`${percent}%`;
-
-  rangeBar.appendChild(marker);
-}
-
-// ------------------------------
-// TABLE WITH RANK
-// ------------------------------
-function populateTable(){
-  dataTable.innerHTML='';
-
-  const entries = Object.entries(stats)
-    .filter(([_, v]) => v != null)
-    .sort((a,b)=>b[1]-a[1]);
-
-  entries.forEach(([iso,value],index)=>{
-    const rank = index + 1;
-    const flagUrl=`https://flagcdn.com/24x18/${iso.toLowerCase()}.png`;
-
-    const tr=document.createElement('tr');
-    tr.dataset.iso=iso;
-
-    tr.innerHTML=`
-      <td>${rank}</td>
-      <td><img src="${flagUrl}" style="vertical-align:middle; margin-right:6px;"> ${iso}</td>
-      <td>${value}</td>
-    `;
-
-    dataTable.appendChild(tr);
-  });
-
-  attachTableClick();
-
-  // default sorted by rank
-  document.querySelectorAll('#dataTable th').forEach(h=>h.classList.remove('asc','desc'));
-  document.querySelector('#dataTable th[data-sort="rank"]').classList.add('asc');
-}
-
-function highlightTableRow(iso){
-  dataTable.querySelectorAll('tr').forEach(r=>r.classList.remove('highlight'));
-  const tr = dataTable.querySelector(`tr[data-iso='${iso}']`);
-  if(tr) tr.classList.add('highlight');
-}
-
-function attachTableClick(){
-  dataTable.querySelectorAll('tr').forEach(tr=>{
-    tr.onclick=()=>{ 
-      const iso = tr.dataset.iso; 
-      highlightOnBar(stats[iso]); 
-      highlightTableRow(iso); 
-
-      geoJsonLayer.eachLayer(layer=>{
-        if(layer.feature.properties.ISO2 === iso){
-          layer.openPopup();
-          map.flyTo(layer.getBounds().getCenter(), 5);
-        }
-      });
+    el.onclick = () => {
+      if (value != null) highlightOnBar(value, iso);
+      highlightTableRow(iso);
+      zoomToCountry(el);
     };
   });
 }
 
 // ------------------------------
-// SORTING WITH ARROWS
+// ANIMATION HELPER
+function animateViewBox(svgEl, targetViewBox, duration=500) {
+  const startViewBox = svgEl.getAttribute('viewBox').split(' ').map(Number);
+  const endViewBox = targetViewBox.split(' ').map(Number);
+  const startTime = performance.now();
+
+  function animate(now) {
+    const t = Math.min((now - startTime) / duration, 1);
+    const easedT = t < 0.5 ? 2*t*t : -1 + (4 - 2*t)*t; // easeInOutQuad
+
+    const current = startViewBox.map((v,i) => v + (endViewBox[i]-v) * easedT);
+    svgEl.setAttribute('viewBox', current.join(' '));
+
+    if (t < 1) requestAnimationFrame(animate);
+  }
+
+  requestAnimationFrame(animate);
+}
+
 // ------------------------------
-document.querySelectorAll('#dataTable th').forEach(th=>{
-  th.onclick=()=>{
-    const type=th.dataset.sort;
-    const rows=Array.from(dataTable.querySelectorAll('tr'));
+function zoomToCountry(el) {
+  const bbox = el.getBBox();
+  const margin = 20;
+  const scale = 0.8;
 
-    document.querySelectorAll('#dataTable th').forEach(h=>h.classList.remove('asc','desc'));
+  const cx = bbox.x + bbox.width / 2;
+  const cy = bbox.y + bbox.height / 2;
+  const newWidth = bbox.width / scale + margin;
+  const newHeight = bbox.height / scale + margin;
 
-    rows.sort((a,b)=>{
-      if(type==='rank') return sortDirection.rank*(a.cells[0].innerText - b.cells[0].innerText);
-      if(type==='name') return sortDirection.name*(a.cells[1].innerText.localeCompare(b.cells[1].innerText));
-      return sortDirection.value*(a.cells[2].innerText - b.cells[2].innerText);
+  const newViewBox = `${cx - newWidth/2} ${cy - newHeight/2} ${newWidth} ${newHeight}`;
+  animateViewBox(svg, newViewBox, 500);
+}
+
+// ------------------------------
+// RANGE BAR
+function updateRangeBar() {
+  rangeBar.innerHTML = '';
+
+  const vals = Object.values(stats).filter(v => v != null);
+  if (!vals.length) return;
+
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+
+  rangeBar.style.background = `linear-gradient(to right, ${
+    colors.map((c,i)=>`${c} ${(i/(colors.length-1))*100}%`).join(',')
+  })`;
+
+  Object.assign(rangeBar.style,{position:'relative',height:'20px',borderRadius:'4px'});
+
+  rangeBar.appendChild(makeLabel(`${min.toFixed(0)} ${currentUnit}`, 'left'));
+  rangeBar.appendChild(makeLabel(`${max.toFixed(0)} ${currentUnit}`, 'right'));
+}
+
+function makeLabel(text, side) {
+  const d = document.createElement('div');
+  d.innerText = text;
+  Object.assign(d.style,{
+    position:'absolute',
+    [side]:'0%',
+    top:'22px',
+    fontSize:'12px',
+    color:'#000'
+  });
+  return d;
+}
+
+// ------------------------------
+function highlightOnBar(value, iso) {
+  document.querySelectorAll('.marker,.marker-flag').forEach(el => el.remove());
+
+  const vals = Object.values(stats).filter(v => v != null);
+  if (!vals.length) return;
+
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+
+  const ratio = (Math.log(value+1)-Math.log(min+1))/(Math.log(max+1)-Math.log(min+1)||1);
+  const bucket = Math.min(Math.max(Math.floor(ratio*10),0),9);
+
+  const marker = document.createElement('div');
+  Object.assign(marker.style,{
+    position:'absolute',bottom:'0',width:'4px',height:'120%',
+    background:colors[bucket],left:`${ratio*100}%`,
+    transform:'translateX(-50%)'
+  });
+  marker.className='marker';
+  rangeBar.appendChild(marker);
+
+  if (iso) {
+    const flag = document.createElement('img');
+    flag.src = `https://flagcdn.com/20x15/${iso.toLowerCase()}.png`;
+    Object.assign(flag.style,{
+      position:'absolute',bottom:'125%',left:`${ratio*100}%`,
+      transform:'translateX(-50%)',width:'20px'
+    });
+    flag.className='marker-flag';
+    rangeBar.appendChild(flag);
+  }
+}
+
+// ------------------------------
+function populateTable() {
+  dataTable.innerHTML = '';
+
+  Object.entries(stats)
+    .filter(([_,v])=>v!=null)
+    .sort((a,b)=>b[1]-a[1])
+    .forEach(([iso,value],i)=>{
+      const tr=document.createElement('tr');
+      tr.dataset.iso=iso;
+      tr.innerHTML=`<td>${i+1}</td><td><img src="https://flagcdn.com/24x18/${iso.toLowerCase()}.png"> ${iso}</td><td>${value}</td>`;
+      dataTable.appendChild(tr);
     });
 
-    rows.forEach(r=>dataTable.appendChild(r));
+  attachTableClick();
+}
 
-    th.classList.add(sortDirection[type]===1?'asc':'desc');
-    sortDirection[type]*=-1;
-  };
-});
+// ------------------------------
+function attachTableClick() {
+  document.querySelectorAll('#dataTable tbody tr').forEach(tr=>{
+    tr.onclick=()=>{
+      const iso=tr.dataset.iso;
+      highlightTableRow(iso);
+      highlightOnBar(stats[iso], iso);
+      const el=svg.querySelector(`#${iso}, g#${iso}`);
+      if(el) zoomToCountry(el);
+    };
+  });
+}
+
+function highlightTableRow(iso) {
+  document.querySelectorAll('#dataTable tbody tr').forEach(tr=>{
+    tr.classList.toggle('highlight', tr.dataset.iso===iso);
+  });
+}

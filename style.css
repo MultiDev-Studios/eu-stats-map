@@ -6,3 +6,18 @@ body {
 #map {
   height: 90vh;
 }
+
+#map svg {
+  width: 100%;
+  height: 100%;
+}
+
+#map path, #map rect {
+  fill: #ccc;
+  stroke: white;
+  stroke-width: 1;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.fillNA { fill: #ccc; }
