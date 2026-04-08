@@ -168,6 +168,31 @@
     h1 { font-size: 1.5rem; }
     select { font-size: 0.9rem; padding: 5px 8px; }
   }
+
+  /* ---------------- FOOTER ---------------- */
+#footer {
+  width: 100%;
+  margin-top: auto;
+  background: #ffffff;
+  border-top: 1px solid #ddd;
+  padding: 10px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.footer-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.footer-content img {
+  height: 24px;
+  width: auto;
+  opacity: 0.8;
+}
 </style>
 </head>
 
@@ -776,5 +801,11 @@
 
 <script src="app.js"></script>
 
+<footer id="footer">
+  <div class="footer-content">
+    <img src="eurostat.png" alt="Eurostat logo" />
+    <span>Data provided by Eurostat API</span>
+  </div>
+</footer>
 </body>
 </html>

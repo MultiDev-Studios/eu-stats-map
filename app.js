@@ -46,6 +46,21 @@ const loadingEl = document.getElementById('loading');
 const rangeBar = document.getElementById('rangeBar');
 const dataTable = document.getElementById('dataTable').querySelector('tbody');
 const mapContainer = document.getElementById('map');
+mapContainer.style.position = 'relative'; // <-- add this
+let originalViewBox = null;
+const resetBtn = document.createElement('button');
+resetBtn.innerText = 'Reset Zoom';
+resetBtn.style.position = 'absolute'; // relative to mapContainer
+resetBtn.style.top = '10px';
+resetBtn.style.right = '10px';
+resetBtn.style.padding = '8px 16px';
+resetBtn.style.border = 'none';
+resetBtn.style.background = '#007bff';
+resetBtn.style.color = '#fff';
+resetBtn.style.borderRadius = '4px';
+resetBtn.style.cursor = 'pointer';
+resetBtn.style.zIndex = 10000; // higher than SVG paths
+mapContainer.appendChild(resetBtn);
 
 // ------------------------------
 // INIT
@@ -83,6 +98,16 @@ async function loadMap(mapName) {
     mapContainer.innerHTML = svgText;
 
     applyDataToSVG();
+
+    if (!originalViewBox) {
+  const svg = mapContainer.querySelector('svg');
+  // Save original viewBox, or fallback to "0 0 width height"
+  if (svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
+    originalViewBox = `${svg.viewBox.baseVal.x} ${svg.viewBox.baseVal.y} ${svg.viewBox.baseVal.width} ${svg.viewBox.baseVal.height}`;
+  } else {
+    originalViewBox = `0 0 ${svg.clientWidth} ${svg.clientHeight}`;
+  }
+}
 
   } catch (err) {
     console.error("Map load error:", err);
@@ -270,22 +295,26 @@ function applyDataToSVG() {
 
 // ------------------------------
 function zoomToCountry(el) {
-  const bbox = el.getBBox();
   const svg = document.querySelector('#map svg');
+  const bbox = el.getBBox();
 
-  const scale = 0.6 * Math.min(
-    svg.clientWidth / bbox.width,
-    svg.clientHeight / bbox.height
-  );
+  const svgWidth = svg.viewBox.baseVal.width || svg.clientWidth;
+  const svgHeight = svg.viewBox.baseVal.height || svg.clientHeight;
+
+  const margin = 20; // extra space around country
+
+  const scale = 0.8; // zoom factor for country relative to viewBox
 
   const cx = bbox.x + bbox.width / 2;
   const cy = bbox.y + bbox.height / 2;
 
-  const tx = svg.clientWidth / 2 - cx * scale;
-  const ty = svg.clientHeight / 2 - cy * scale;
+  const newWidth = bbox.width / scale + margin;
+  const newHeight = bbox.height / scale + margin;
 
-  svg.style.transition = 'transform 0.5s';
-  svg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  const newX = cx - newWidth / 2;
+  const newY = cy - newHeight / 2;
+
+  svg.setAttribute('viewBox', `${newX} ${newY} ${newWidth} ${newHeight}`);
 }
 
 // ------------------------------
