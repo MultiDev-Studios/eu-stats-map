@@ -2,197 +2,163 @@
 <html>
 <head>
   <title>EU Stats Map</title>
-
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-
 <style>
-  /* ---------------- GLOBAL ---------------- */
-  body { 
-    font-family: Arial, sans-serif; 
-    margin: 0; 
-    padding: 0;
-    background: #f4f6f8;
-    transition: background 0.3s; 
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    min-height: 100vh;
-  }
-
-  h1 { 
-    text-align: center;
-    margin: 20px 0;
-    font-size: 1.8rem;
-  }
-
-  #controls { 
-    text-align: center;
-    margin-bottom: 15px;
-  }
-
-  select {
-    padding: 6px 12px;
-    border-radius: 6px;
-    border: 1px solid #ccc;
-    font-size: 1rem;
-  }
-
-  /* ---------------- RANGE BAR ---------------- */
-  #rangeBar {
-    width: 90%;
-    max-width: 800px;
-    height: 20px;
-    margin: 15px auto;
-    border-radius: 10px;
-    position: relative;
-    box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
-  }
-
-/* ---------------- RANGE BAR IMPROVEMENTS ---------------- */
-#rangeBar .marker {
-  transition: all 0.3s ease;
-  z-index: 2;
+body { 
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; 
+  margin: 0; padding: 0;
+  background: #eef2f7;
+  color: #ffffff;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-#rangeBar .marker-flag {
-  transition: all 0.3s ease;
-  z-index: 3;
+h1 { 
+  text-align: center;
+  margin: 20px 0;
+  font-size: 2rem;
+  color: #ffffff;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
 }
 
-  #rangeBar .label {
-    position: absolute;
-    top: 22px;
-    font-size: 11px;
-    transform: translateX(-50%);
-    color: #000;
-  }
+#controls { text-align: center; margin-bottom: 15px; }
+select {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #aaa;
+  font-size: 1rem;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
 
-  /* ---------------- MAIN CONTAINER ---------------- */
-  #mainContainer { 
-    display: flex; 
-    width: 95%; 
-    max-width: 1400px;
-    gap: 20px; 
-    margin-bottom: 30px;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: flex-start;
-  }
+#rangeBar {
+  width: 90%;
+  max-width: 800px;
+  height: 20px;
+  margin: 15px auto;
+  border-radius: 10px;
+  background: #d0d4d9;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+  position: relative;
+}
 
-  #map { 
-    flex: 2 1 600px;
-    min-width: 300px;
-    height: 70vh; 
-    border-radius: 10px; 
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  }
+#rangeBar .marker, #rangeBar .marker-flag { transition: all 0.3s ease; z-index: 2; }
+#rangeBar .label { position: absolute; top: 22px; font-size: 11px; transform: translateX(-50%); color: #333; }
 
-  #map svg {
-    width: 100%;
-    height: 100%;
-    max-height: 100%;
-    object-fit: contain;
-  }
-
-  #tableContainer {
-    flex: 1 1 300px;
-    max-height: 70vh; 
-    overflow-y: auto; 
-    border-radius: 10px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    background: white;
-  }
-
-  table { 
-    width: 100%; 
-    border-collapse: collapse; 
-  }
-
-  th, td { 
-    padding: 8px 10px; 
-    text-align: right; 
-  }
-
-  th { 
-    cursor: pointer; 
-    background: #f2f2f2; 
-    position: sticky;
-    top: 0;
-    z-index: 2;
-  }
-
-  th.asc::after { content: " ▲"; }
-  th.desc::after { content: " ▼"; }
-
-  th:first-child, td:first-child { text-align: center; }
-  td:nth-child(2) { text-align: left; }
-
-  tr:hover { background: rgba(0,0,0,0.05); }
-  tr.highlight { background: #ffeaa7; }
-
-  /* ---------------- LOADING ---------------- */
-  #loading {
-    position: fixed;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(255,255,255,0.95);
-    padding: 15px 25px;
-    border-radius: 10px;
-    font-weight: bold;
-    display: none;
-    z-index: 1000;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-  }
-
-  /* ---------------- RESPONSIVE ---------------- */
-  @media (max-width: 1024px) {
-    #mainContainer {
-      flex-direction: column;
-      align-items: center;
-    }
-
-    #map, #tableContainer {
-      width: 95%;
-      height: 60vh;
-    }
-  }
-
-  @media (max-width: 600px) {
-    #map, #tableContainer {
-      height: 50vh;
-    }
-
-    h1 { font-size: 1.5rem; }
-    select { font-size: 0.9rem; padding: 5px 8px; }
-  }
-
-  /* ---------------- FOOTER ---------------- */
-#footer {
-  width: 100%;
-  margin-top: auto;
-  background: #ffffff;
-  border-top: 1px solid #ddd;
-  padding: 10px 0;
+/* ---------------- MAIN WRAPPER ---------------- */
+#mainWrapper {
   display: flex;
   justify-content: center;
+  width: 95%;
+  max-width: 1600px;
+  gap: 20px;
+  margin-top: 30px; /* leave space for footer height */
+  margin-bottom: 60px; /* leave space for footer height */
+  flex-wrap: nowrap;
 }
 
-.footer-content {
+/* Hide ads temporarily */
+.side-ad, #bottomAd { display: none; }
+
+/* ---------------- CONTENT ---------------- */
+#content {
+  flex: 1 1 800px;
   display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 300px;
   align-items: center;
-  gap: 10px;
-  font-size: 0.9rem;
-  color: #555;
 }
 
-.footer-content img {
-  height: 24px;
-  width: auto;
-  opacity: 0.8;
+/* Map + table wrapper */
+#mapTableWrapper {
+  display: flex;
+  flex: 1 1 100%;
+  gap: 20px;
+  justify-content: center;
+  align-items: stretch;
+  width: 100%;
 }
+
+#map { 
+  flex: 2;
+  min-width: 400px;
+  height: 70vh; 
+  border-radius: 10px; 
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  background: #0c0c0d; /* pale blue for water */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+#map svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+#tableContainer {
+  flex: 1;
+  min-width: 300px;
+  max-height: 70vh; 
+  overflow-y: auto; 
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  background: white;
+}
+
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 8px 10px; text-align: right; }
+th { cursor: pointer; background: #f5f5f5; position: sticky; top: 0; z-index: 2; }
+th.asc::after { content: " ▲"; }
+th.desc::after { content: " ▼"; }
+th:first-child, td:first-child { text-align: center; }
+td:nth-child(2) { text-align: left; }
+tr:hover { background: rgba(0,0,0,0.05); }
+tr.highlight { background: #ffeaa7; }
+
+#loading {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255,255,255,0.95);
+  padding: 15px 25px;
+  border-radius: 10px;
+  font-weight: bold;
+  display: none;
+  z-index: 1000;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+
+/* RESPONSIVE */
+@media (max-width: 1200px) {
+  #mapTableWrapper { flex-direction: column; align-items: center; }
+  #map, #tableContainer { width: 95%; height: 50vh; }
+}
+
+@media (max-width: 768px) { #map, #tableContainer { height: 45vh; } }
+@media (max-width: 480px) { h1 { font-size: 1.5rem; } select { font-size: 0.9rem; padding: 5px 8px; } }
+
+/* ---------------- FOOTER ---------------- */
+#footer {
+  width: 100%;
+  background: #ffffff;
+  border-top: 1px solid #ddd;
+  padding: 2px 0;
+  display: flex;
+  justify-content: center;
+  position: fixed;   /* <-- make it fixed */
+  bottom: 0;         /* <-- stick to bottom */
+  left: 0;
+  z-index: 999;
+}
+
+.footer-content { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; color: #555; }
+.footer-content img { height: 40px; width: auto; opacity: 0.8; }
 </style>
 </head>
 
@@ -213,9 +179,13 @@
 
 <div id="rangeBar"></div>
 
-<div id="mainContainer">
-  <div id="map">
-<svg
+<div id="mainWrapper">
+
+  <div id="content">
+    <div id="mapTableWrapper">
+      <div id="map">
+        <!-- Map and SVG will render here -->
+         <svg
    version="1.1"
    viewBox="3200 1115 6284 6991"
    id="euMap"
@@ -783,19 +753,32 @@
   </metadata>
 </svg>
 
-</div>
+      </div>
+      <div id="tableContainer">
+        <table id="dataTable">
+          <thead>
+            <tr>
+              <th data-sort="rank">#</th>
+              <th data-sort="name">Country</th>
+              <th data-sort="value">Value</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <!-- Generated text to test footer -->
+    <div id="generatedText" style="width: 90%; max-width: 800px; margin-top: 20px;">
+      <p>Fusce vehicula, Suspendisse potenti. Cras feugiat, lectus a rutrum dictum, lacus nisi feugiat quam, eget dictum nulla velit sed velit.Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec pretium mi a ante dictum, id dignissim enim lacinia. Sed condimentum, dolor et tristique venenatis, nisi urna semper tortor, ac sodales enim nisl non tellus. Sed sit amet velit sollicitudin libero pharetra sagittis vel sed turpis. Morbi mollis, felis id bibendum pharetra, nibh ex ultricies diam, vel laoreet nulla quam varius odio. Quisque nulla justo, facilisis ut nunc eget, ultricies egestas quam. Pellentesque in ultrices lectus. Morbi iaculis dui a mi congue egestas. Praesent elementum nisi non maximus tempus. Nam euismod elit ac nibh varius mattis. Pellentesque vitae felis eu augue varius fermentum. In hac habitasse platea dictumst. Phasellus ac dolor lobortis, lobortis sem ac, commodo mauris. Pellentesque ut dolor dui.
 
-  <div id="tableContainer">
-    <table id="dataTable">
-      <thead>
-        <tr>
-          <th data-sort="rank">#</th>
-          <th data-sort="name">Country</th>
-          <th data-sort="value">Value</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+Suspendisse vel odio nisi. Suspendisse eget elit fringilla, faucibus ligula at, tincidunt augue. Nam ut purus eget est molestie dictum. Maecenas eu odio sapien. Maecenas sit amet quam et dolor fringilla porta. Curabitur nec purus viverra, tristique dui vitae, faucibus lectus. Nunc cursus semper nisi, quis viverra massa rutrum a. Ut id eros erat. Vivamus dolor nulla, convallis quis diam id, finibus commodo sapien. Mauris mi sapien, placerat sed ex eget, hendrerit tincidunt orci.
+
+Quisque ex elit, mollis at ullamcorper et, finibus nec metus. Vestibulum maximus egestas metus quis congue. Aliquam molestie eros vitae vestibulum blandit. Phasellus ut convallis nisi, id maximus lectus. Nullam interdum nulla id sem rhoncus, non porta urna bibendum. Vivamus ultricies egestas tristique. Proin dictum dolor ullamcorper mauris cursus cursus.
+
+Cras non molestie mi, sed imperdiet velit. In vulputate, velit id venenatis placerat, orci dolor vehicula mauris, at consectetur quam nulla ac metus. Maecenas in lectus eget ex porta lobortis. Mauris pellentesque pretium scelerisque. Praesent facilisis magna vitae dolor lobortis tincidunt id ac risus. Vestibulum dignissim risus ut viverra accumsan. Aenean malesuada interdum pretium. Proin urna urna, sollicitudin fermentum vulputate sit amet, dictum et enim. Curabitur semper tellus vel purus faucibus, eu feugiat libero finibus. Sed eget augue sem. Fusce dolor ante, egestas nec augue eget, porta egestas magna. Etiam imperdiet scelerisque ligula sed scelerisque. Donec lacinia efficitur vulputate.
+
+Vivamus ut purus sed nunc eleifend sodales quis sed felis. Cras tincidunt nisl vitae odio consequat consequat. Nunc cursus, leo scelerisque viverra suscipit, ex velit ornare lacus, ut pulvinar lectus nunc id lectus. Cras nibh enim, consectetur nec est et, pretium dapibus tortor. Donec commodo tellus id iaculis dignissim. Phasellus vel vulputate ipsum, fermentum egestas ligula. In vel massa ante. Nunc varius gravida orci quis pulvinar.</p>
+    </div>
   </div>
 </div>
 
