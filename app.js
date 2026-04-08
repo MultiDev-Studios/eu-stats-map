@@ -4,147 +4,97 @@ let geoJsonLayer = null;
 let currentUnit = '';
 
 // ------------------------------
-// CACHES (BIG PERFORMANCE BOOST)
-// ------------------------------
 const dataCache = {};
-const mapCache = {};
+
+// ------------------------------
+// COLORS
+const colors = [
+  'rgb(253,247,254)','rgb(244,219,250)','rgb(226,185,245)',
+  'rgb(204,153,240)','rgb(180,120,235)','rgb(150,90,220)',
+  'rgb(120,60,200)','rgb(90,40,170)','rgb(60,20,140)',
+  'rgb(40,10,110)'
+];
 
 // ------------------------------
 // TOOLTIP
 const tooltip = document.createElement('div');
-tooltip.style.position = 'absolute';
-tooltip.style.pointerEvents = 'none';
-tooltip.style.padding = '4px 8px';
-tooltip.style.background = 'rgba(0,0,0,0.7)';
-tooltip.style.color = '#fff';
-tooltip.style.borderRadius = '4px';
-tooltip.style.fontSize = '12px';
-tooltip.style.display = 'none';
+Object.assign(tooltip.style, {
+  position:'absolute', pointerEvents:'none', padding:'4px 8px',
+  background:'rgba(0,0,0,0.7)', color:'#fff',
+  borderRadius:'4px', fontSize:'12px', display:'none'
+});
 document.body.appendChild(tooltip);
 
 // ------------------------------
-// Theme handling
+// THEME
 function setMapBackground() {
-  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-  document.body.style.background = isDark ? '#111' : '#f4f6f8';
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.body.style.background = dark ? '#111' : '#f4f6f8';
 
   const table = document.getElementById('dataTable');
-  table.style.background = isDark ? '#1e1e1e' : '#fff';
-  table.style.color = isDark ? '#eee' : '#000';
+  if (!table) return;
 
-  table.querySelectorAll('th').forEach(th => th.style.background = isDark ? '#2c2c2c' : '#f0f0f0');
-  table.querySelectorAll('td').forEach(td => td.style.background = isDark ? '#1e1e1e' : '#fff');
+  table.style.background = dark ? '#1e1e1e' : '#fff';
+  table.style.color = dark ? '#eee' : '#000';
+
+  table.querySelectorAll('th').forEach(th => th.style.background = dark ? '#2c2c2c' : '#f0f0f0');
+  table.querySelectorAll('td').forEach(td => td.style.background = dark ? '#1e1e1e' : '#fff');
 }
 setMapBackground();
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setMapBackground);
 
 // ------------------------------
 const datasetSelect = document.getElementById('dataset');
-const mapSelect = document.getElementById('mapSelect');
 const loadingEl = document.getElementById('loading');
 const rangeBar = document.getElementById('rangeBar');
-const dataTable = document.getElementById('dataTable').querySelector('tbody');
+const dataTable = document.getElementById('dataTable')?.querySelector('tbody');
 const mapContainer = document.getElementById('map');
-mapContainer.style.position = 'relative'; // <-- add this
-let originalViewBox = null;
+
+mapContainer.style.position = 'relative';
+
+const svg = mapContainer.querySelector('svg');
+let originalViewBox = svg.getAttribute('viewBox') || "3200 1115 6284 6991";
+
+// ------------------------------
+// RESET BUTTON
 const resetBtn = document.createElement('button');
 resetBtn.innerText = 'Reset Zoom';
-resetBtn.style.position = 'absolute'; // relative to mapContainer
-resetBtn.style.top = '10px';
-resetBtn.style.right = '10px';
-resetBtn.style.padding = '8px 16px';
-resetBtn.style.border = 'none';
-resetBtn.style.background = '#007bff';
-resetBtn.style.color = '#fff';
-resetBtn.style.borderRadius = '4px';
-resetBtn.style.cursor = 'pointer';
-resetBtn.style.zIndex = 10000; // higher than SVG paths
+Object.assign(resetBtn.style, {
+  position:'absolute', top:'10px', right:'10px',
+  padding:'8px 16px', border:'none',
+  background:'#007bff', color:'#fff',
+  borderRadius:'4px', cursor:'pointer',
+  zIndex:10000
+});
 mapContainer.appendChild(resetBtn);
+
+resetBtn.onclick = () => {
+  animateViewBox(svg, originalViewBox, 500);
+};
 
 // ------------------------------
 // INIT
-datasetSelect.addEventListener('change', () => loadEurostatData(datasetSelect.value));
-mapSelect.addEventListener('change', () => loadMap(mapSelect.value));
-
-// preload maps (instant switching later)
-["eu", "world"].forEach(name => {
-  fetch(`maps/${name}.svg`)
-    .then(res => res.text())
-    .then(svg => mapCache[name] = svg)
-    .catch(() => {});
-});
+datasetSelect?.addEventListener('change', () => loadEurostatData(datasetSelect.value));
 
 // initial load
-loadMap(mapSelect.value);
 loadEurostatData(datasetSelect.value);
+applyDataToSVG(); // color the map initially
 
 // ------------------------------
-// LOAD MAP (SVG)
-async function loadMap(mapName) {
-  try {
-    loadingEl.style.display = 'block';
-
-    if (mapCache[mapName]) {
-      mapContainer.innerHTML = mapCache[mapName];
-      applyDataToSVG();
-      return;
-    }
-
-    const res = await fetch(`maps/${mapName}.svg`);
-    const svgText = await res.text();
-
-    mapCache[mapName] = svgText;
-    mapContainer.innerHTML = svgText;
-
-    applyDataToSVG();
-
-    if (!originalViewBox) {
-  const svg = mapContainer.querySelector('svg');
-  // Save original viewBox, or fallback to "0 0 width height"
-  if (svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
-    originalViewBox = `${svg.viewBox.baseVal.x} ${svg.viewBox.baseVal.y} ${svg.viewBox.baseVal.width} ${svg.viewBox.baseVal.height}`;
-  } else {
-    originalViewBox = `0 0 ${svg.clientWidth} ${svg.clientHeight}`;
-  }
-}
-
-  } catch (err) {
-    console.error("Map load error:", err);
-  } finally {
-    loadingEl.style.display = 'none';
-  }
-}
-
-// ------------------------------
-// LOAD DATA (WITH CACHE)
+// LOAD DATA
 async function loadEurostatData(dataset) {
   try {
     loadingEl.style.display = 'block';
 
-    let data;
+    const data = dataCache[dataset] ??
+      await (await fetch(`https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/${dataset}?lang=EN&geoLevel=country`)).json();
 
-    // 1️⃣ check cache first
-    if (dataCache[dataset]) {
-      console.log("Using cached data:", dataset);
-      data = dataCache[dataset];
-    } else {
-      const res = await fetch(`https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/${dataset}?lang=EN&geoLevel=country`);
-      data = await res.json();
-      dataCache[dataset] = data;
-    }
+    dataCache[dataset] = data;
 
-    console.log("RAW EUROSTAT RESPONSE:", data);
+    currentUnit = data.dimension?.unit
+      ? Object.values(data.dimension.unit.category.label)[0]
+      : '';
 
-    // 2️⃣ now safe to read the unit
-    if (data.dimension && data.dimension.unit) {
-      const unitKey = Object.keys(data.dimension.unit.category.label)[0];
-      currentUnit = data.dimension.unit.category.label[unitKey];
-    } else {
-      currentUnit = '';
-    }
-
-    // 3️⃣ extract stats & update UI
     stats = extractLatest(data);
 
     applyDataToSVG();
@@ -159,86 +109,43 @@ async function loadEurostatData(dataset) {
 }
 
 // ------------------------------
-// EXTRACT DATA (FIXED + DEBUG)
 function extractLatest(data) {
-  const result = {};
-  if (!data.dimension || !data.value) return result;
+  if (!data.dimension || !data.value) return {};
 
   const dims = Object.keys(data.dimension);
+  const sizes = dims.map(d => Object.keys(data.dimension[d].category.index).length);
 
-  const dimSizes = dims.map(d => Object.keys(data.dimension[d].category.index).length);
+  const multipliers = dims.map((_,i)=>sizes.slice(i+1).reduce((a,b)=>a*b,1));
+  const latestTime = data.dimension.time ? Object.keys(data.dimension.time.category.index).sort().pop() : null;
+  const filters = { unit:"CP_MEUR", na_item:"B1GQ" };
 
-  const multipliers = [];
-  let prod = 1;
-  for (let i = dims.length - 1; i >= 0; i--) {
-    multipliers[i] = prod;
-    prod *= dimSizes[i];
-  }
+  return Object.keys(data.dimension.geo.category.index).reduce((res,geo)=>{
+    const indices = dims.map((dim,i)=>
+      dim==="geo" ? data.dimension.geo.category.index[geo] :
+      dim==="time" ? (latestTime ? data.dimension.time.category.index[latestTime] : 0) :
+      filters[dim] ? data.dimension[dim].category.index[filters[dim]] ?? 0 : 0
+    );
 
-  let latestTimeKey = null;
-  if (data.dimension.time) {
-    const timeKeys = Object.keys(data.dimension.time.category.index);
-    latestTimeKey = timeKeys.sort().pop();
-  }
+    const flat = indices.reduce((a,v,i)=>a+v*multipliers[i],0);
+    const val = data.value[flat];
 
-  const preferredFilters = {
-    unit: "CP_MEUR",
-    na_item: "B1GQ"
-  };
-
-  const geoKeys = Object.keys(data.dimension.geo.category.index);
-
-  geoKeys.forEach(geoCode => {
-    const indices = [];
-
-    dims.forEach((dim, i) => {
-      if (dim === "geo") {
-        indices[i] = data.dimension.geo.category.index[geoCode];
-      } else if (dim === "time") {
-        indices[i] = latestTimeKey != null
-          ? data.dimension.time.category.index[latestTimeKey]
-          : 0;
-      } else if (preferredFilters[dim]) {
-        const idx = data.dimension[dim].category.index[preferredFilters[dim]];
-        indices[i] = idx !== undefined ? idx : 0;
-      } else {
-        indices[i] = 0;
-      }
-    });
-
-    let flatIndex = 0;
-    indices.forEach((idx, i) => flatIndex += idx * multipliers[i]);
-
-    const val = data.value[flatIndex];
-
-    if (val != null && val !== ":" && geoCode.length === 2) {
-      result[geoCode] = val;
-    }
-  });
-
-  return result;
+    if (val != null && val !== ":" && geo.length === 2) res[geo] = val;
+    return res;
+  },{});
 }
 
 // ------------------------------
-// APPLY DATA TO SVG (FAST)
 function applyDataToSVG() {
   const vals = Object.values(stats).filter(v => v != null);
   if (!vals.length) return;
 
   const min = Math.min(...vals);
   const max = Math.max(...vals);
+  const logMin = Math.log(min + 1);
+  const logMax = Math.log(max + 1);
 
-  document.querySelectorAll('#map svg path').forEach(el => {
-
-    let iso = el.id?.toUpperCase();
-
-    if (!iso || iso.length !== 2) {
-      const parent = el.closest('g');
-      if (parent && parent.id) {
-        iso = parent.id.toUpperCase();
-      }
-    }
-
+  svg.querySelectorAll('path').forEach(el => {
+    let iso = (el.id || el.closest('g')?.id)?.toUpperCase();
     if (!iso || iso.length !== 2) return;
 
     el.classList.remove(
@@ -248,29 +155,19 @@ function applyDataToSVG() {
 
     const value = stats[iso];
 
-    if (value === undefined || value === null || value === ":") {
+    if (value == null || value === ":") {
       el.classList.add('fillNA');
     } else {
-      const logMin = Math.log(min + 1);
-      const logMax = Math.log(max + 1);
-      const logVal = Math.log(value + 1);
-
-      const ratio = (logVal - logMin) / (logMax - logMin || 1);
-      const bucket = Math.floor(ratio * 10);
-      const safeBucket = Math.min(Math.max(bucket, 0), 9);
-      el.classList.add(`fill${safeBucket}0`);
+      const ratio = (Math.log(value + 1) - logMin) / (logMax - logMin || 1);
+      const bucket = Math.min(Math.max(Math.floor(ratio * 10), 0), 9);
+      el.classList.add(`fill${bucket}0`);
     }
 
-    // ------------------------------
-    // TOOLTIP
-    el.onmouseenter = e => {
-      const currentValue = stats[iso];
+    // tooltip
+    el.onmouseenter = () => {
       el.style.stroke = 'black';
       el.style.strokeWidth = '2';
-      const name = el.dataset.name || iso;
-      tooltip.innerHTML = currentValue != null
-        ? `<b>${name}</b>: ${currentValue} ${currentUnit}`
-        : `<b>${name}</b>: N/A`;
+      tooltip.innerHTML = `<b>${el.dataset.name || iso}</b>: ${value ?? 'N/A'} ${currentUnit}`;
       tooltip.style.display = 'block';
     };
 
@@ -285,8 +182,7 @@ function applyDataToSVG() {
     };
 
     el.onclick = () => {
-      const currentValue = stats[iso];
-      if (currentValue != null) highlightOnBar(currentValue);
+      if (value != null) highlightOnBar(value, iso);
       highlightTableRow(iso);
       zoomToCountry(el);
     };
@@ -294,35 +190,44 @@ function applyDataToSVG() {
 }
 
 // ------------------------------
+// ANIMATION HELPER
+function animateViewBox(svgEl, targetViewBox, duration=500) {
+  const startViewBox = svgEl.getAttribute('viewBox').split(' ').map(Number);
+  const endViewBox = targetViewBox.split(' ').map(Number);
+  const startTime = performance.now();
+
+  function animate(now) {
+    const t = Math.min((now - startTime) / duration, 1);
+    const easedT = t < 0.5 ? 2*t*t : -1 + (4 - 2*t)*t; // easeInOutQuad
+
+    const current = startViewBox.map((v,i) => v + (endViewBox[i]-v) * easedT);
+    svgEl.setAttribute('viewBox', current.join(' '));
+
+    if (t < 1) requestAnimationFrame(animate);
+  }
+
+  requestAnimationFrame(animate);
+}
+
+// ------------------------------
 function zoomToCountry(el) {
-  const svg = document.querySelector('#map svg');
   const bbox = el.getBBox();
-
-  const svgWidth = svg.viewBox.baseVal.width || svg.clientWidth;
-  const svgHeight = svg.viewBox.baseVal.height || svg.clientHeight;
-
-  const margin = 20; // extra space around country
-
-  const scale = 0.8; // zoom factor for country relative to viewBox
+  const margin = 20;
+  const scale = 0.8;
 
   const cx = bbox.x + bbox.width / 2;
   const cy = bbox.y + bbox.height / 2;
-
   const newWidth = bbox.width / scale + margin;
   const newHeight = bbox.height / scale + margin;
 
-  const newX = cx - newWidth / 2;
-  const newY = cy - newHeight / 2;
-
-  svg.setAttribute('viewBox', `${newX} ${newY} ${newWidth} ${newHeight}`);
+  const newViewBox = `${cx - newWidth/2} ${cy - newHeight/2} ${newWidth} ${newHeight}`;
+  animateViewBox(svg, newViewBox, 500);
 }
 
 // ------------------------------
 // RANGE BAR
-// ------------------------------
-// RANGE BAR
 function updateRangeBar() {
-  rangeBar.innerHTML = ''; // clear previous content
+  rangeBar.innerHTML = '';
 
   const vals = Object.values(stats).filter(v => v != null);
   if (!vals.length) return;
@@ -330,170 +235,95 @@ function updateRangeBar() {
   const min = Math.min(...vals);
   const max = Math.max(...vals);
 
-  // COLORS MATCH SVG BUCKETS
-  const colors = [
-    'rgb(253,247,254)',
-    'rgb(244,219,250)',
-    'rgb(226,185,245)',
-    'rgb(204,153,240)',
-    'rgb(180,120,235)',
-    'rgb(150,90,220)',
-    'rgb(120,60,200)',
-    'rgb(90,40,170)',
-    'rgb(60,20,140)',
-    'rgb(40,10,110)'
-  ];
+  rangeBar.style.background = `linear-gradient(to right, ${
+    colors.map((c,i)=>`${c} ${(i/(colors.length-1))*100}%`).join(',')
+  })`;
 
-  // CREATE LINEAR GRADIENT
-  const stops = colors.map((color, i) => {
-    const pct = (i / (colors.length - 1)) * 100;
-    return `${color} ${pct}%`;
-  }).join(', ');
+  Object.assign(rangeBar.style,{position:'relative',height:'20px',borderRadius:'4px'});
 
-  rangeBar.style.background = `linear-gradient(to right, ${stops})`;
-  rangeBar.style.position = 'relative';
-  rangeBar.style.height = '20px';
-  rangeBar.style.borderRadius = '4px';
+  rangeBar.appendChild(makeLabel(`${min.toFixed(0)} ${currentUnit}`, 'left'));
+  rangeBar.appendChild(makeLabel(`${max.toFixed(0)} ${currentUnit}`, 'right'));
+}
 
-  // MIN LABEL
-  const minLabel = document.createElement('div');
-  minLabel.className = 'label';
-  minLabel.style.position = 'absolute';
-  minLabel.style.left = '0%';
-  minLabel.style.top = '22px';
-  minLabel.style.fontSize = '12px';
-  minLabel.style.color = '#000';
-  minLabel.innerText = `${min.toFixed(0)} ${currentUnit}`;
-  rangeBar.appendChild(minLabel);
-
-  // MAX LABEL
-  const maxLabel = document.createElement('div');
-  maxLabel.className = 'label';
-  maxLabel.style.position = 'absolute';
-  maxLabel.style.right = '0%';
-  maxLabel.style.top = '22px';
-  maxLabel.style.fontSize = '12px';
-  maxLabel.style.color = '#000';
-  maxLabel.innerText = `${max.toFixed(0)} ${currentUnit}`;
-  rangeBar.appendChild(maxLabel);
+function makeLabel(text, side) {
+  const d = document.createElement('div');
+  d.innerText = text;
+  Object.assign(d.style,{
+    position:'absolute',
+    [side]:'0%',
+    top:'22px',
+    fontSize:'12px',
+    color:'#000'
+  });
+  return d;
 }
 
 // ------------------------------
-// RANGE BAR IMPROVEMENTS
 function highlightOnBar(value, iso) {
-  // remove old marker + flag
-  const oldMarker = rangeBar.querySelector('.marker');
-  if (oldMarker) oldMarker.remove();
-  const oldFlag = rangeBar.querySelector('.marker-flag');
-  if (oldFlag) oldFlag.remove();
+  document.querySelectorAll('.marker,.marker-flag').forEach(el => el.remove());
 
   const vals = Object.values(stats).filter(v => v != null);
-  if (!vals.length || value == null) return;
+  if (!vals.length) return;
 
   const min = Math.min(...vals);
   const max = Math.max(...vals);
 
-  // LOGARITHMIC BUCKET MATCHING SVG
-  const logMin = Math.log(min + 1);
-  const logMax = Math.log(max + 1);
-  const logVal = Math.log(value + 1);
+  const ratio = (Math.log(value+1)-Math.log(min+1))/(Math.log(max+1)-Math.log(min+1)||1);
+  const bucket = Math.min(Math.max(Math.floor(ratio*10),0),9);
 
-  const ratio = (logVal - logMin) / (logMax - logMin || 1);
-
-  // COLORS MATCH SVG BUCKETS
-  const colors = [
-    'rgb(253,247,254)',
-    'rgb(244,219,250)',
-    'rgb(226,185,245)',
-    'rgb(204,153,240)',
-    'rgb(180,120,235)',
-    'rgb(150,90,220)',
-    'rgb(120,60,200)',
-    'rgb(90,40,170)',
-    'rgb(60,20,140)',
-    'rgb(40,10,110)'
-  ];
-
-  let bucket = Math.floor(ratio * 10);
-  bucket = Math.min(Math.max(bucket, 0), 9);
-
-  // MARKER LINE
   const marker = document.createElement('div');
-  marker.className = 'marker';
-  marker.style.position = 'absolute';
-  marker.style.bottom = '0';
-  marker.style.width = '4px';
-  marker.style.height = '120%'; // taller for visibility
-  marker.style.background = colors[bucket];
-  marker.style.left = `${ratio * 100}%`;
-  marker.style.transform = 'translateX(-50%)';
-  marker.style.border = '1px solid #333';
-  marker.style.borderRadius = '2px';
+  Object.assign(marker.style,{
+    position:'absolute',bottom:'0',width:'4px',height:'120%',
+    background:colors[bucket],left:`${ratio*100}%`,
+    transform:'translateX(-50%)'
+  });
+  marker.className='marker';
   rangeBar.appendChild(marker);
 
-  // FLAG ABOVE MARKER
   if (iso) {
     const flag = document.createElement('img');
     flag.src = `https://flagcdn.com/20x15/${iso.toLowerCase()}.png`;
-    flag.className = 'marker-flag';
-    flag.style.position = 'absolute';
-    flag.style.bottom = '125%';
-    flag.style.left = `${ratio * 100}%`;
-    flag.style.transform = 'translateX(-50%)';
-    flag.style.width = '20px';
-    flag.style.height = '15px';
-    flag.style.border = '1px solid #333';
-    flag.style.borderRadius = '2px';
+    Object.assign(flag.style,{
+      position:'absolute',bottom:'125%',left:`${ratio*100}%`,
+      transform:'translateX(-50%)',width:'20px'
+    });
+    flag.className='marker-flag';
     rangeBar.appendChild(flag);
   }
 }
 
 // ------------------------------
-// TABLE
 function populateTable() {
   dataTable.innerHTML = '';
 
-  const entries = Object.entries(stats)
-    .filter(([_, v]) => v != null)
-    .sort((a, b) => b[1] - a[1]);
-
-  entries.forEach(([iso, value], index) => {
-    const rank = index + 1;
-    const flagUrl = `https://flagcdn.com/24x18/${iso.toLowerCase()}.png`;
-
-    const tr = document.createElement('tr');
-    tr.dataset.iso = iso;
-
-    tr.innerHTML = `
-      <td>${rank}</td>
-      <td><img src="${flagUrl}" style="vertical-align:middle; margin-right:6px;"> ${iso}</td>
-      <td>${value}</td>
-    `;
-
-    dataTable.appendChild(tr);
-  });
+  Object.entries(stats)
+    .filter(([_,v])=>v!=null)
+    .sort((a,b)=>b[1]-a[1])
+    .forEach(([iso,value],i)=>{
+      const tr=document.createElement('tr');
+      tr.dataset.iso=iso;
+      tr.innerHTML=`<td>${i+1}</td><td><img src="https://flagcdn.com/24x18/${iso.toLowerCase()}.png"> ${iso}</td><td>${value}</td>`;
+      dataTable.appendChild(tr);
+    });
 
   attachTableClick();
 }
 
 // ------------------------------
-// TABLE CLICK + HIGHLIGHT
 function attachTableClick() {
-  document.querySelectorAll('#dataTable tbody tr').forEach(tr => {
-    tr.onclick = () => {
-      const iso = tr.dataset.iso;
-      const value = stats[iso];
+  document.querySelectorAll('#dataTable tbody tr').forEach(tr=>{
+    tr.onclick=()=>{
+      const iso=tr.dataset.iso;
       highlightTableRow(iso);
-      highlightOnBar(value, iso);
-      // zoom to country
-      const el = document.querySelector(`#map svg [id='${iso}'], #map svg g[id='${iso}']`);
-      if (el) zoomToCountry(el);
+      highlightOnBar(stats[iso], iso);
+      const el=svg.querySelector(`#${iso}, g#${iso}`);
+      if(el) zoomToCountry(el);
     };
   });
 }
 
 function highlightTableRow(iso) {
-  document.querySelectorAll('#dataTable tbody tr').forEach(tr => {
-    tr.classList.toggle('highlight', tr.dataset.iso === iso);
+  document.querySelectorAll('#dataTable tbody tr').forEach(tr=>{
+    tr.classList.toggle('highlight', tr.dataset.iso===iso);
   });
 }
